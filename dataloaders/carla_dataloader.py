@@ -4,26 +4,45 @@ import numpy as np
 import pathlib
 import random
 
-
+import torch
 import cv2
 import tqdm
 import torch.utils.data as data
 import h5py
 import dataloaders.transforms as transforms
+
+
 from dataset_3d.data_loaders import dataset_loader
 from dataset_3d.utils.projection_utils import LidarToCameraProjector
 import dataset_3d.utils.loading_utils as loading_utils
 import dataset_3d.utils.visualization_utils as visualization_utils
 
 
-class CarlaDataset(data.Dataset):
-    SEED = 42
+to_tensor = transforms.ToTensor()
 
+
+class CarlaDataset(data.Dataset):
+    seed = 42
+
+    output_size = (228, 912)
     _modality_names = ['rgb', 'rgbd']
+    _color_jitter = transforms.ColorJitter(0.4, 0.4, 0.4)
+
+    # as the crop is hardcoded we assert a given image size to prevent errors
+    _input_width = 1600
+    _input_height = 900
+
+    _crop_upper_x = 0
+    _crop_upper_y = 150
+
+    _crop_width = 1600
+    _crop_height = 750
+
+    _road_crop = (_crop_upper_y, _crop_upper_x, _crop_height, _crop_width)
 
     def __init__(self, root, type, modality="rgbd", camera_rgb_name="cam_front", camera_depth_name="cam_front_depth", lidar_name="lidar_top", ego_pose_sensor_name="imu_perfect"):
 
-        random.seed(self.SEED)
+        random.seed(self.seed)
 
         assert type == "val" or type == "train", "unsupported dataset type {}".format(
             type)
@@ -42,15 +61,22 @@ class CarlaDataset(data.Dataset):
         self._camera_depth_sensor, _ = loading_utils.load_sensor_with_calib(
             self._loader, camera_depth_name)
 
+        # check image sizes
+        assert self._camera_rgb_sensor.meta['image_size_x'] == self._input_width, "crop does not match input images, pls adapt."
+        assert self._camera_rgb_sensor.meta['image_size_y'] == self._input_height, "crop does not match input images, pls adapt."
+
+        assert self._camera_depth_sensor.meta['image_size_x'] == self._input_width, "crop does not match input images, pls adapt."
+        assert self._camera_depth_sensor.meta['image_size_y'] == self._input_height, "crop does not match input images, pls adapt."
+
         self._data_entries = self.prepare_dataset()
 
-        # if type == 'train':
-        #     self.transform = self.train_transform
-        # elif type == 'val':
-        #     self.transform = self.val_transform
-        # else:
-        #     raise (RuntimeError("Invalid dataset type: " + type + "\n"
-        #                         "Supported dataset types are: train, val"))
+        if type == 'train':
+            self._transform = self._train_transform
+        elif type == 'val':
+            self._transform = self._val_transform
+        else:
+            raise (RuntimeError("Invalid dataset type: " + type + "\n"
+                                "Supported dataset types are: train, val"))
 
         assert (modality in self._modality_names), "Invalid modality type: " + modality + "\n" + \
             "Supported dataset types are: " + ''.join(self.modality_names)
@@ -77,7 +103,7 @@ class CarlaDataset(data.Dataset):
                 sample_token = sample.next_token
 
         # shuffle
-        random.shuffle(data_entries)
+        # random.shuffle(data_entries)
         return data_entries
 
     def load_data(self, sample):
@@ -98,7 +124,7 @@ class CarlaDataset(data.Dataset):
 
         return cam_rgb_img, depth_map_lidar, cam_depth_img
 
-    def visualize(self, sample, vis_dir="/workspace/visualization"):
+    def visualize(self, sample, vis_dir="/workspace/visualization", i=0):
         # TODO
         vis_dir = pathlib.Path(vis_dir)
         depth_map_lidar = self._projector.lidar2depth_map(sample)
@@ -145,23 +171,78 @@ class CarlaDataset(data.Dataset):
     def __getitem__(self, index):
         rgb, depth_lidar, depth_gt = self.__getraw__(index)
 
-        input_img = None
+        # if self.modality == 'rgb':
+        #     input_img = rgb
+        # elif self.modality == 'rgbd':
+        #     # add depth as 4th channel
+        #     depth_lidar = np.expand_dims(depth_lidar, axis=-1)
+        #     input_img = np.concatenate([rgb, depth_lidar], axis=2)
 
-        # make single channel h x w x 1
-        depth_gt = np.expand_dims(depth_gt, axis=-1)
-        # transpose to 1 x h x w
-        depth_gt = np.transpose(depth_gt, (2, 0, 1))
+        # apply transforms (for data augmentation)
+        if self._transform is not None:
+            input_img, sparse_depth, depth_gt = self._transform(
+                rgb, depth_lidar, depth_gt)
+        else:
+            raise(RuntimeError("transform not defined"))
 
-        if self.modality == 'rgb':
-            input_img = rgb
-        elif self.modality == 'rgbd':
-            # add depth as 4th channel
-            depth_lidar = np.expand_dims(depth_lidar, axis=-1)
-            input_img = np.concatenate([rgb, depth_lidar], axis=2)
+        # convert to torch and flip channels in front
+        input_img = to_tensor(input_img)
+        depth_gt = to_tensor(depth_gt)
 
-        # convert to channels x h x w
-        input_img = np.transpose(input_img,  (2, 0, 1))
         return input_img, depth_gt
 
     def __len__(self):
         return len(self._data_entries)
+
+    def _train_transform(self, rgb, sparse_depth, depth_gt):
+        s = np.random.uniform(1.0, 1.5)  # random scaling
+        depth_gt = depth_gt / s
+
+        # TODO critical why is the input not scaled in original implementation?
+        sparse_depth = sparse_depth / s
+
+        angle = np.random.uniform(-5.0, 5.0)  # random rotation degrees
+        do_flip = np.random.uniform(0.0, 1.0) < 0.5  # random horizontal flip
+
+        # perform 1st step of data augmentation
+        # TODO critical adjust sizes
+        transform = transforms.Compose([
+            transforms.Crop(*self._road_crop),
+            transforms.Rotate(angle),
+            transforms.Resize(s),
+            transforms.CenterCrop(self.output_size),
+            transforms.HorizontalFlip(do_flip)
+        ])
+
+        print("orig shape =", rgb.shape)
+        rgb = transform(rgb)
+        print("crop shape =", rgb.shape)
+        sparse_depth = transform(sparse_depth)
+
+        # TODO needed?
+        # Scipy affine_transform produced RuntimeError when the depth map was
+        # given as a 'numpy.ndarray'
+        depth_gt = np.asfarray(depth_gt, dtype='float32')
+        depth_gt = transform(depth_gt)
+
+        rgb = self._color_jitter(rgb)  # random color jittering
+
+        cv2.imwrite("/workspace/visualization/rgb.png", rgb)
+
+        # convert color [0,255] -> [0.0, 1.0] floats
+        rgb = np.asfarray(rgb, dtype='float') / 255
+
+        return rgb, sparse_depth, depth_gt
+
+    def _val_transform(self, rgb, depth):
+        depth_np = depth
+        transform = transforms.Compose([
+            transforms.Crop(130, 10, 240, 1200),
+            transforms.CenterCrop(self.output_size),
+        ])
+        rgb_np = transform(rgb)
+        rgb_np = np.asfarray(rgb_np, dtype='float') / 255
+        depth_np = np.asfarray(depth_np, dtype='float32')
+        depth_np = transform(depth_np)
+
+        return rgb_np, depth_np
