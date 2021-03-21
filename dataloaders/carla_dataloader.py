@@ -40,14 +40,14 @@ class CarlaDataset(data.Dataset):
 
     _road_crop = (_crop_upper_y, _crop_upper_x, _crop_height, _crop_width)
 
-    def __init__(self, root, type, modality="rgbd", camera_rgb_name="cam_front", camera_depth_name="cam_front_depth", lidar_name="lidar_top", ego_pose_sensor_name="imu_perfect"):
+    def __init__(self, root, type, modality="rgbd", max_depth=500, camera_rgb_name="cam_front", camera_depth_name="cam_front_depth", lidar_name="lidar_top", ego_pose_sensor_name="imu_perfect"):
 
         random.seed(self.seed)
 
         assert type == "val" or type == "train", "unsupported dataset type {}".format(
             type)
 
-        root = pathlib.Path(root).joinpath(type)
+        root = pathlib.Path(root)
 
         self._loader = dataset_loader.DatasetLoader(root)
         self._loader.setup()
@@ -81,6 +81,7 @@ class CarlaDataset(data.Dataset):
         assert (modality in self._modality_names), "Invalid modality type: " + modality + "\n" + \
             "Supported dataset types are: " + ''.join(self.modality_names)
         self.modality = modality
+        self._max_depth = max_depth
 
     def _sensor_data_to_full_filepath(self, s_data):
         path = s_data.file
@@ -121,6 +122,12 @@ class CarlaDataset(data.Dataset):
         # convert to single channel float img
         cam_depth_img = loading_utils.rgb_encoded_depth_to_float(
             cam_depth_img)
+
+        if self._max_depth != np.inf:
+            depth_map_lidar = np.clip(
+                depth_map_lidar, a_min=0.0, a_max=self._max_depth)
+            cam_depth_img = np.clip(
+                cam_depth_img, a_min=0.0, a_max=self._max_depth)
 
         return cam_rgb_img, depth_map_lidar, cam_depth_img
 
@@ -170,13 +177,6 @@ class CarlaDataset(data.Dataset):
 
     def __getitem__(self, index):
         rgb, depth_lidar, depth_gt = self.__getraw__(index)
-
-        # if self.modality == 'rgb':
-        #     input_img = rgb
-        # elif self.modality == 'rgbd':
-        #     # add depth as 4th channel
-        #     depth_lidar = np.expand_dims(depth_lidar, axis=-1)
-        #     input_img = np.concatenate([rgb, depth_lidar], axis=2)
 
         # apply transforms (for data augmentation)
         if self._transform is not None:
