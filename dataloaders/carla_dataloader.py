@@ -180,14 +180,24 @@ class CarlaDataset(data.Dataset):
 
         # apply transforms (for data augmentation)
         if self._transform is not None:
-            input_img, sparse_depth, depth_gt = self._transform(
+            rgb, depth_lidar, depth_gt = self._transform(
                 rgb, depth_lidar, depth_gt)
         else:
             raise(RuntimeError("transform not defined"))
 
+        input_img = None
+        if self.modality == "rgb":
+            input_img = rgb
+        elif self.modality == "rgbd":
+            # depth is h x w -> h x w x 1
+            depth_lidar = np.expand_dims(depth_lidar, axis=-1)
+            input_img = np.concatenate([rgb, depth_lidar], axis=-1)
+
         # convert to torch and flip channels in front
         input_img = to_tensor(input_img)
         depth_gt = to_tensor(depth_gt)
+        # make 1 x h x w
+        depth_gt = depth_gt.unsqueeze(0)
 
         return input_img, depth_gt
 
@@ -201,6 +211,7 @@ class CarlaDataset(data.Dataset):
         # TODO critical why is the input not scaled in original implementation?
         sparse_depth = sparse_depth / s
 
+        # TODO adapt and refactor
         angle = np.random.uniform(-5.0, 5.0)  # random rotation degrees
         do_flip = np.random.uniform(0.0, 1.0) < 0.5  # random horizontal flip
 
@@ -214,9 +225,7 @@ class CarlaDataset(data.Dataset):
             transforms.HorizontalFlip(do_flip)
         ])
 
-        print("orig shape =", rgb.shape)
         rgb = transform(rgb)
-        print("crop shape =", rgb.shape)
         sparse_depth = transform(sparse_depth)
 
         # TODO needed?
@@ -227,22 +236,23 @@ class CarlaDataset(data.Dataset):
 
         rgb = self._color_jitter(rgb)  # random color jittering
 
-        cv2.imwrite("/workspace/visualization/rgb.png", rgb)
-
         # convert color [0,255] -> [0.0, 1.0] floats
         rgb = np.asfarray(rgb, dtype='float') / 255
 
         return rgb, sparse_depth, depth_gt
 
-    def _val_transform(self, rgb, depth):
-        depth_np = depth
+    def _val_transform(self, rgb, sparse_depth, depth_gt):
         transform = transforms.Compose([
-            transforms.Crop(130, 10, 240, 1200),
+            transforms.Crop(*self._road_crop),
             transforms.CenterCrop(self.output_size),
         ])
-        rgb_np = transform(rgb)
-        rgb_np = np.asfarray(rgb_np, dtype='float') / 255
-        depth_np = np.asfarray(depth_np, dtype='float32')
-        depth_np = transform(depth_np)
+        rgb = transform(rgb)
+        rgb = np.asfarray(rgb, dtype='float') / 255
 
-        return rgb_np, depth_np
+        sparse_depth = np.asfarray(sparse_depth, dtype='float32')
+        sparse_depth = transform(sparse_depth)
+
+        depth_gt = np.asfarray(depth_gt, dtype='float32')
+        depth_gt = transform(depth_gt)
+
+        return rgb, sparse_depth, depth_gt
