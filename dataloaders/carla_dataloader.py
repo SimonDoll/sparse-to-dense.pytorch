@@ -114,8 +114,11 @@ class CarlaDataset(data.Dataset):
         # non set values are nan -> set to 0.0 for training
         depth_map_lidar = np.nan_to_num(depth_map_lidar, nan=0)
 
-        cam_rgb_img = loading_utils.load_camera_image(
+        cam_bgr_img = loading_utils.load_camera_image(
             self._loader, sample, self._camera_rgb_sensor)
+
+        # bgr -> rgb
+        cam_rgb_img = cam_bgr_img[..., ::-1]
 
         cam_depth_img = loading_utils.load_camera_image(
             self._loader, sample, self._camera_depth_sensor)
