@@ -24,7 +24,7 @@ to_tensor = transforms.ToTensor()
 class CarlaDataset(data.Dataset):
     seed = 42
 
-    output_size = (228, 912)
+    output_size = (750, 1600)
     _modality_names = ['rgb', 'rgbd']
     _color_jitter = transforms.ColorJitter(0.4, 0.4, 0.4)
 
