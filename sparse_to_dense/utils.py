@@ -2,6 +2,7 @@ import os
 import torch
 import shutil
 import numpy as np
+import pathlib
 import matplotlib.pyplot as plt
 from PIL import Image
 
@@ -60,6 +61,8 @@ def parse_command():
     parser.add_argument('--pretrained', default=True,
                         help="Wether the model should be initialized with pretrained weights, can be a path to a saved model as well")
 
+    parser.add_argument('--output_dir', default="work_dirs", type=str)
+
     args = parser.parse_args()
     if args.modality == 'rgb' and args.num_samples != 0:
         print("number of samples is forced to be 0 when input modality is rgb")
@@ -92,12 +95,19 @@ def adjust_learning_rate(optimizer, epoch, lr_init):
 
 
 def get_output_directory(args):
-    output_directory = os.path.join('results',
-                                    '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}'.
-                                    format(args.data, args.sparsifier, args.num_samples, args.modality,
-                                           args.arch, args.decoder, args.criterion, args.lr, args.batch_size,
-                                           args.pretrained))
-    return output_directory
+
+    output_base = pathlib.Path(args.output_dir)
+    exp_name = '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}'.format(args.data, args.sparsifier, args.num_samples, args.modality,
+                                                                                                                          args.arch, args.decoder, args.criterion, args.lr, args.batch_size,
+                                                                                                                          args.pretrained)
+    output_dir = output_base.joinpath(exp_name)
+
+    # output_directory = os.path.join('results',
+    #                                 '{}.sparsifier={}.samples={}.modality={}.arch={}.decoder={}.criterion={}.lr={}.bs={}.pretrained={}'.
+    #                                 format(args.data, args.sparsifier, args.num_samples, args.modality,
+    #                                        args.arch, args.decoder, args.criterion, args.lr, args.batch_size,
+    #                                        args.pretrained))
+    return output_dir
 
 
 def colored_depthmap(depth, d_min=None, d_max=None):
