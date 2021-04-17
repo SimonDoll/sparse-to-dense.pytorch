@@ -143,8 +143,9 @@ def main():
         optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                     momentum=args.momentum, weight_decay=args.weight_decay)
 
-        # model = torch.nn.DataParallel(model).cuda() # for multi-gpu training
-        model = model.cuda()
+        print("Model uses", torch.cuda.device_count(), "GPUs")
+        model = torch.nn.DataParallel(model).cuda()  # for multi-gpu training
+        # model = model.cuda()
 
     # define loss function (criterion) and optimizer
     if args.criterion == 'l2':

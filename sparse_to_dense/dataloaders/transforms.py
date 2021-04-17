@@ -2,8 +2,11 @@ from __future__ import division
 import torch
 import math
 import random
+import numbers
 
+import cv2
 from PIL import Image, ImageOps, ImageEnhance
+from torch.types import Number
 try:
     import accimage
 except ImportError:
@@ -22,14 +25,17 @@ import scipy.misc as misc
 def _is_numpy_image(img):
     return isinstance(img, np.ndarray) and (img.ndim in {2, 3})
 
+
 def _is_pil_image(img):
     if accimage is not None:
         return isinstance(img, (Image.Image, accimage.Image))
     else:
         return isinstance(img, Image.Image)
 
+
 def _is_tensor_image(img):
     return torch.is_tensor(img) and img.ndimension() == 3
+
 
 def adjust_brightness(img, brightness_factor):
     """Adjust brightness of an Image.
@@ -115,7 +121,8 @@ def adjust_hue(img, hue_factor):
         PIL Image: Hue adjusted image.
     """
     if not(-0.5 <= hue_factor <= 0.5):
-        raise ValueError('hue_factor is not in [-0.5, 0.5].'.format(hue_factor))
+        raise ValueError(
+            'hue_factor is not in [-0.5, 0.5].'.format(hue_factor))
 
     if not _is_pil_image(img):
         raise TypeError('img should be PIL Image. Got {}'.format(type(img)))
@@ -217,7 +224,8 @@ class ToTensor(object):
             elif img.ndim == 2:
                 img = torch.from_numpy(img.copy())
             else:
-                raise RuntimeError('img should be ndarray with 2 or 3 dimensions. Got {}'.format(img.ndim))
+                raise RuntimeError(
+                    'img should be ndarray with 2 or 3 dimensions. Got {}'.format(img.ndim))
 
             # backward compatibility
             # return img.float().div(255)
@@ -252,8 +260,9 @@ class NormalizeNumpyArray(object):
         # TODO: make efficient
         print(img.shape)
         for i in range(3):
-            img[:,:,i] = (img[:,:,i] - self.mean[i]) / self.std[i]
+            img[:, :, i] = (img[:, :, i] - self.mean[i]) / self.std[i]
         return img
+
 
 class NormalizeTensor(object):
     """Normalize an tensor image with mean and standard deviation.
@@ -284,6 +293,7 @@ class NormalizeTensor(object):
         for t, m, s in zip(tensor, self.mean, self.std):
             t.sub_(m).div_(s)
         return tensor
+
 
 class Rotate(object):
     """Rotates the given ``numpy.ndarray``.
@@ -320,25 +330,47 @@ class Resize(object):
             ``PIL.Image.BILINEAR``
     """
 
-    def __init__(self, size, interpolation='nearest'):
+    def __init__(self, size, interpolation=cv2.INTER_NEAREST):
         assert isinstance(size, int) or isinstance(size, float) or \
-               (isinstance(size, collections.Iterable) and len(size) == 2)
+            (isinstance(size, collections.Iterable) and len(size) == 2)
+
         self.size = size
         self.interpolation = interpolation
 
     def __call__(self, img):
         """
         Args:
-            img (PIL Image): Image to be scaled.
+            img np.ndarray: Image to be scaled.
         Returns:
             PIL Image: Rescaled image.
         """
+
+        if isinstance(self.size, numbers.Number):
+            # compute scale factor
+            # img is h x w x channels ( optional )
+            height = int(img.shape[0] * self.size)
+            width = int(img.shape[1] * self.size)
+
+            self.size = (height, width)
+
+        self.interpolation = "nearest"
+
         if img.ndim == 3:
+            img = Image.fromarray(img).resize(
+                (self.size[1], self.size[0]), Image.NEAREST)
+            img = np.array(img)
+
+            return img
+
             return misc.imresize(img, self.size, self.interpolation)
         elif img.ndim == 2:
-            return misc.imresize(img, self.size, self.interpolation, 'F')
+            img = Image.fromarray(img).resize(
+                (self.size[1], self.size[0]), Image.NEAREST)
+            img = np.array(img)
+            return img
         else:
-            RuntimeError('img should be ndarray with 2 or 3 dimensions. Got {}'.format(img.ndim))
+            RuntimeError(
+                'img should be ndarray with 2 or 3 dimensions. Got {}'.format(img.ndim))
 
 
 class CenterCrop(object):
@@ -356,7 +388,7 @@ class CenterCrop(object):
         else:
             self.size = size
 
-    @staticmethod
+    @ staticmethod
     def get_params(img, output_size):
         """Get parameters for ``crop`` for center crop.
 
@@ -402,7 +434,8 @@ class CenterCrop(object):
         elif img.ndim == 2:
             return img[i:i + h, j:j + w]
         else:
-            raise RuntimeError('img should be ndarray with 2 or 3 dimensions. Got {}'.format(img.ndim))
+            raise RuntimeError(
+                'img should be ndarray with 2 or 3 dimensions. Got {}'.format(img.ndim))
 
 
 class Lambda(object):
@@ -461,13 +494,14 @@ class ColorJitter(object):
         hue(float): How much to jitter hue. hue_factor is chosen uniformly from
             [-hue, hue]. Should be >=0 and <= 0.5.
     """
+
     def __init__(self, brightness=0, contrast=0, saturation=0, hue=0):
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
         self.hue = hue
 
-    @staticmethod
+    @ staticmethod
     def get_params(brightness, contrast, saturation, hue):
         """Get a randomized transform to be applied on image.
 
@@ -479,16 +513,22 @@ class ColorJitter(object):
         """
         transforms = []
         if brightness > 0:
-            brightness_factor = np.random.uniform(max(0, 1 - brightness), 1 + brightness)
-            transforms.append(Lambda(lambda img: adjust_brightness(img, brightness_factor)))
+            brightness_factor = np.random.uniform(
+                max(0, 1 - brightness), 1 + brightness)
+            transforms.append(
+                Lambda(lambda img: adjust_brightness(img, brightness_factor)))
 
         if contrast > 0:
-            contrast_factor = np.random.uniform(max(0, 1 - contrast), 1 + contrast)
-            transforms.append(Lambda(lambda img: adjust_contrast(img, contrast_factor)))
+            contrast_factor = np.random.uniform(
+                max(0, 1 - contrast), 1 + contrast)
+            transforms.append(
+                Lambda(lambda img: adjust_contrast(img, contrast_factor)))
 
         if saturation > 0:
-            saturation_factor = np.random.uniform(max(0, 1 - saturation), 1 + saturation)
-            transforms.append(Lambda(lambda img: adjust_saturation(img, saturation_factor)))
+            saturation_factor = np.random.uniform(
+                max(0, 1 - saturation), 1 + saturation)
+            transforms.append(
+                Lambda(lambda img: adjust_saturation(img, saturation_factor)))
 
         if hue > 0:
             hue_factor = np.random.uniform(-hue, hue)
@@ -514,6 +554,7 @@ class ColorJitter(object):
         transform = self.get_params(self.brightness, self.contrast,
                                     self.saturation, self.hue)
         return np.array(transform(pil))
+
 
 class Crop(object):
     """Crops the given PIL Image to a rectangular region based on a given
