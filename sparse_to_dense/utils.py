@@ -23,9 +23,9 @@ def parse_command():
     parser = argparse.ArgumentParser(description='Sparse-to-Dense')
     parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18', choices=model_names,
                         help='model architecture: ' + ' | '.join(model_names) + ' (default: resnet18)')
-    parser.add_argument('--data', metavar='DATA', default='nyudepthv2',
+    parser.add_argument('--data', metavar='DATA', default='carla',
                         choices=data_names,
-                        help='dataset: ' + ' | '.join(data_names) + ' (default: nyudepthv2)')
+                        help='dataset: ' + ' | '.join(data_names) + ' (default: carla)')
     parser.add_argument('--modality', '-m', metavar='MODALITY', default='rgb', choices=modality_names,
                         help='modality: ' + ' | '.join(modality_names) + ' (default: rgb)')
     parser.add_argument('-s', '--num-samples', default=0, type=int, metavar='N',
