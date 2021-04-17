@@ -56,9 +56,10 @@ def parse_command():
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('-e', '--evaluate', dest='evaluate', type=str, default='',
                         help='evaluate model on validation set')
-    parser.add_argument('--no-pretrain', dest='pretrained', action='store_false',
-                        help='not to use ImageNet pre-trained weights')
-    parser.set_defaults(pretrained=True)
+
+    parser.add_argument('--pretrained', default=True,
+                        help="Wether the model should be initialized with pretrained weights, can be a path to a saved model as well")
+
     args = parser.parse_args()
     if args.modality == 'rgb' and args.num_samples != 0:
         print("number of samples is forced to be 0 when input modality is rgb")

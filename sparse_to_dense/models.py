@@ -5,6 +5,7 @@ import torchvision.models
 import collections
 import math
 
+
 class Unpool(nn.Module):
     # Unpool: 2*2 unpooling with zero padding
     def __init__(self, num_channels, stride=2):
@@ -14,11 +15,14 @@ class Unpool(nn.Module):
         self.stride = stride
 
         # create kernel [1, 0; 0, 0]
-        self.weights = torch.autograd.Variable(torch.zeros(num_channels, 1, stride, stride).cuda()) # currently not compatible with running on CPU
-        self.weights[:,:,0,0] = 1
+        # currently not compatible with running on CPU
+        self.weights = torch.autograd.Variable(
+            torch.zeros(num_channels, 1, stride, stride).cuda())
+        self.weights[:, :, 0, 0] = 1
 
     def forward(self, x):
         return F.conv_transpose2d(x, self.weights, stride=self.stride, groups=self.num_channels)
+
 
 def weights_init(m):
     # Initialize filters with Gaussian random weights
@@ -35,6 +39,7 @@ def weights_init(m):
     elif isinstance(m, nn.BatchNorm2d):
         m.weight.data.fill_(1)
         m.bias.data.zero_()
+
 
 class Decoder(nn.Module):
     # Decoder is the base class for all decoders
@@ -56,39 +61,44 @@ class Decoder(nn.Module):
         x = self.layer4(x)
         return x
 
+
 class DeConv(Decoder):
     def __init__(self, in_channels, kernel_size):
-        assert kernel_size>=2, "kernel_size out of range: {}".format(kernel_size)
+        assert kernel_size >= 2, "kernel_size out of range: {}".format(
+            kernel_size)
         super(DeConv, self).__init__()
 
         def convt(in_channels):
             stride = 2
             padding = (kernel_size - 1) // 2
             output_padding = kernel_size % 2
-            assert -2 - 2*padding + kernel_size + output_padding == 0, "deconv parameters incorrect"
+            assert -2 - 2*padding + kernel_size + \
+                output_padding == 0, "deconv parameters incorrect"
 
             module_name = "deconv{}".format(kernel_size)
             return nn.Sequential(collections.OrderedDict([
-                  (module_name, nn.ConvTranspose2d(in_channels,in_channels//2,kernel_size,
-                        stride,padding,output_padding,bias=False)),
-                  ('batchnorm', nn.BatchNorm2d(in_channels//2)),
-                  ('relu',      nn.ReLU(inplace=True)),
-                ]))
+                (module_name, nn.ConvTranspose2d(in_channels, in_channels//2, kernel_size,
+                                                 stride, padding, output_padding, bias=False)),
+                ('batchnorm', nn.BatchNorm2d(in_channels//2)),
+                ('relu',      nn.ReLU(inplace=True)),
+            ]))
 
         self.layer1 = convt(in_channels)
         self.layer2 = convt(in_channels // 2)
         self.layer3 = convt(in_channels // (2 ** 2))
         self.layer4 = convt(in_channels // (2 ** 3))
 
+
 class UpConv(Decoder):
     # UpConv decoder consists of 4 upconv modules with decreasing number of channels and increasing feature map size
     def upconv_module(self, in_channels):
         # UpConv module: unpool -> 5*5 conv -> batchnorm -> ReLU
         upconv = nn.Sequential(collections.OrderedDict([
-          ('unpool',    Unpool(in_channels)),
-          ('conv',      nn.Conv2d(in_channels,in_channels//2,kernel_size=5,stride=1,padding=2,bias=False)),
-          ('batchnorm', nn.BatchNorm2d(in_channels//2)),
-          ('relu',      nn.ReLU()),
+            ('unpool',    Unpool(in_channels)),
+            ('conv',      nn.Conv2d(in_channels, in_channels//2,
+                                    kernel_size=5, stride=1, padding=2, bias=False)),
+            ('batchnorm', nn.BatchNorm2d(in_channels//2)),
+            ('relu',      nn.ReLU()),
         ]))
         return upconv
 
@@ -98,6 +108,7 @@ class UpConv(Decoder):
         self.layer2 = self.upconv_module(in_channels//2)
         self.layer3 = self.upconv_module(in_channels//4)
         self.layer4 = self.upconv_module(in_channels//8)
+
 
 class UpProj(Decoder):
     # UpProj decoder consists of 4 upproj modules with decreasing number of channels and increasing feature map size
@@ -112,15 +123,18 @@ class UpProj(Decoder):
             out_channels = in_channels//2
             self.unpool = Unpool(in_channels)
             self.upper_branch = nn.Sequential(collections.OrderedDict([
-              ('conv1',      nn.Conv2d(in_channels,out_channels,kernel_size=5,stride=1,padding=2,bias=False)),
-              ('batchnorm1', nn.BatchNorm2d(out_channels)),
-              ('relu',      nn.ReLU()),
-              ('conv2',      nn.Conv2d(out_channels,out_channels,kernel_size=3,stride=1,padding=1,bias=False)),
-              ('batchnorm2', nn.BatchNorm2d(out_channels)),
+                ('conv1',      nn.Conv2d(in_channels, out_channels,
+                                         kernel_size=5, stride=1, padding=2, bias=False)),
+                ('batchnorm1', nn.BatchNorm2d(out_channels)),
+                ('relu',      nn.ReLU()),
+                ('conv2',      nn.Conv2d(out_channels, out_channels,
+                                         kernel_size=3, stride=1, padding=1, bias=False)),
+                ('batchnorm2', nn.BatchNorm2d(out_channels)),
             ]))
             self.bottom_branch = nn.Sequential(collections.OrderedDict([
-              ('conv',      nn.Conv2d(in_channels,out_channels,kernel_size=5,stride=1,padding=2,bias=False)),
-              ('batchnorm', nn.BatchNorm2d(out_channels)),
+                ('conv',      nn.Conv2d(in_channels, out_channels,
+                                        kernel_size=5, stride=1, padding=2, bias=False)),
+                ('batchnorm', nn.BatchNorm2d(out_channels)),
             ]))
             self.relu = nn.ReLU()
 
@@ -139,10 +153,11 @@ class UpProj(Decoder):
         self.layer3 = self.UpProjModule(in_channels//4)
         self.layer4 = self.UpProjModule(in_channels//8)
 
+
 def choose_decoder(decoder, in_channels):
     # iheight, iwidth = 10, 8
     if decoder[:6] == 'deconv':
-        assert len(decoder)==7
+        assert len(decoder) == 7
         kernel_size = int(decoder[6])
         return DeConv(in_channels, kernel_size)
     elif decoder == "upproj":
@@ -157,16 +172,29 @@ class ResNet(nn.Module):
     def __init__(self, layers, decoder, output_size, in_channels=3, pretrained=True):
 
         if layers not in [18, 34, 50, 101, 152]:
-            raise RuntimeError('Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
+            raise RuntimeError(
+                'Only 18, 34, 50, 101, and 152 layer model are defined for ResNet. Got {}'.format(layers))
 
         super(ResNet, self).__init__()
-        pretrained_model = torchvision.models.__dict__['resnet{}'.format(layers)](pretrained=pretrained)
+
+        if isinstance(pretrained, str):
+            # if pretrained is a string it is a path to the models state dict (e.g. because no internet connection is available)
+
+            pretrained_model = torchvision.models.__dict__[
+                'resnet{}'.format(layers)](pretrained=False)
+            # now load the state dict from disk
+            pretrained_model.load_state_dict(torch.load(pretrained))
+
+        else:
+            pretrained_model = torchvision.models.__dict__[
+                'resnet{}'.format(layers)](pretrained=pretrained)
 
         if in_channels == 3:
             self.conv1 = pretrained_model._modules['conv1']
             self.bn1 = pretrained_model._modules['bn1']
         else:
-            self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            self.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
             self.bn1 = nn.BatchNorm2d(64)
             weights_init(self.conv1)
             weights_init(self.bn1)
@@ -189,13 +217,16 @@ class ResNet(nn.Module):
         elif layers >= 50:
             num_channels = 2048
 
-        self.conv2 = nn.Conv2d(num_channels,num_channels//2,kernel_size=1,bias=False)
+        self.conv2 = nn.Conv2d(num_channels, num_channels //
+                               2, kernel_size=1, bias=False)
         self.bn2 = nn.BatchNorm2d(num_channels//2)
         self.decoder = choose_decoder(decoder, num_channels//2)
 
         # setting bias=true doesn't improve accuracy
-        self.conv3 = nn.Conv2d(num_channels//32,1,kernel_size=3,stride=1,padding=1,bias=False)
-        self.bilinear = nn.Upsample(size=self.output_size, mode='bilinear', align_corners=True)
+        self.conv3 = nn.Conv2d(num_channels//32, 1,
+                               kernel_size=3, stride=1, padding=1, bias=False)
+        self.bilinear = nn.Upsample(
+            size=self.output_size, mode='bilinear', align_corners=True)
 
         # weight init
         self.conv2.apply(weights_init)
