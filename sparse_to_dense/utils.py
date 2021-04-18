@@ -107,7 +107,7 @@ def get_output_directory(args):
     #                                 format(args.data, args.sparsifier, args.num_samples, args.modality,
     #                                        args.arch, args.decoder, args.criterion, args.lr, args.batch_size,
     #                                        args.pretrained))
-    return output_dir
+    return str(output_dir)
 
 
 def colored_depthmap(depth, d_min=None, d_max=None):
