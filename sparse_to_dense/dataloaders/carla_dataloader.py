@@ -24,7 +24,7 @@ to_tensor = transforms.ToTensor()
 class CarlaDataset(data.Dataset):
     seed = 42
 
-    output_size = (750, 1600)
+    output_size = (450, 1600)
     _modality_names = ['rgb', 'rgbd']
     _color_jitter = transforms.ColorJitter(0.4, 0.4, 0.4)
 
@@ -33,10 +33,9 @@ class CarlaDataset(data.Dataset):
     _input_height = 900
 
     _crop_upper_x = 0
-    _crop_upper_y = 150
-
+    _crop_upper_y = 450
     _crop_width = 1600
-    _crop_height = 750
+    _crop_height = 450
 
     _road_crop = (_crop_upper_y, _crop_upper_x, _crop_height, _crop_width)
 
